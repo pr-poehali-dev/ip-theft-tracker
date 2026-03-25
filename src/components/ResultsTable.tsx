@@ -3,6 +3,7 @@ import Icon from "@/components/ui/icon";
 export interface Violation {
   id: string;
   productName: string;
+  brand?: string;
   seller: string;
   marketplace: "wb" | "ozon";
   articleId: string;
@@ -11,6 +12,7 @@ export interface Violation {
   price: number;
   detectedAt: string;
   status: "new" | "processing" | "filed" | "resolved";
+  url?: string;
 }
 
 const riskConfig = {
@@ -55,7 +57,13 @@ const ResultsTable = ({ violations, isLoading }: ResultsTableProps) => {
   }
 
   if (violations.length === 0) {
-    return null;
+    return (
+      <div className="card-glass rounded-2xl p-10 text-center">
+        <Icon name="CheckCircle" size={36} className="mx-auto mb-3 text-[#22c55e]" />
+        <div className="text-white font-semibold mb-1">Нарушений не найдено</div>
+        <div className="text-xs text-[hsl(215,20%,45%)] font-mono">По данному запросу товаров с нарушениями не обнаружено</div>
+      </div>
+    );
   }
 
   return (
@@ -139,9 +147,21 @@ const ResultsTable = ({ violations, isLoading }: ResultsTableProps) => {
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    <button className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 text-[var(--neon)] text-xs font-mono hover:underline">
-                      Жалоба <Icon name="ArrowRight" size={11} />
-                    </button>
+                    <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2">
+                      {v.url && (
+                        <a
+                          href={v.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 text-[hsl(215,20%,50%)] text-xs font-mono hover:text-[var(--neon)] transition-colors"
+                        >
+                          <Icon name="ExternalLink" size={11} />
+                        </a>
+                      )}
+                      <button className="flex items-center gap-1 text-[var(--neon)] text-xs font-mono hover:underline">
+                        Жалоба <Icon name="ArrowRight" size={11} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );

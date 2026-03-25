@@ -1,0 +1,20 @@
+{
+  "tests": [
+    {
+      "name": "Search emkolbaski on all marketplaces",
+      "method": "GET",
+      "path": "/?query=%D0%B5%D0%BC%D0%BA%D0%BE%D0%BB%D0%B1%D0%B0%D1%81%D0%BA%D0%B8&marketplace=all",
+      "expectedStatus": 200,
+      "expectedBody": { "total": 0 },
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Search only WB",
+      "method": "GET",
+      "path": "/?query=%D0%B5%D0%BC%D0%BA%D0%BE%D0%BB%D0%B1%D0%B0%D1%81%D0%BA%D0%B8&marketplace=wb",
+      "expectedStatus": 200,
+      "expectedBody": { "query": "емколбаски" },
+      "bodyMatcher": "partial"
+    }
+  ]
+}
