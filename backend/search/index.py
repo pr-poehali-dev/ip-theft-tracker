@@ -1,11 +1,97 @@
 """
-Поиск товаров на маркетплейсах WB и Ozon по запросу бренда для выявления нарушений ИС.
+Поиск товаров на маркетплейсах WB и Ozon по нескольким брендам/товарным знакам.
+Поддерживает множественный ввод через запятую и морфологические формы слов.
 """
 import json
 import urllib.request
 import urllib.parse
 import datetime
+import re
 
+
+# ──────────────────────────────────────────────
+# Морфология: словоформы для частых корней
+# ──────────────────────────────────────────────
+
+MORPHO_MAP = {
+    "колбаск": [
+        "колбаски", "колбасок", "колбаска", "колбаске",
+        "колбаску", "колбасками", "колбасках",
+    ],
+    "колбас": [
+        "колбаса", "колбасы", "колбасе", "колбасу",
+        "колбасой", "колбасах", "колбасами",
+    ],
+    "сосиск": [
+        "сосиска", "сосиски", "сосисок", "сосиске",
+        "сосиску", "сосисками", "сосисках",
+    ],
+    "шпикачк": [
+        "шпикачки", "шпикачка", "шпикачек",
+    ],
+    "сардельк": [
+        "сарделька", "сардельки", "сарделек",
+        "сарделькой", "сардельками",
+    ],
+    "ветчин": [
+        "ветчина", "ветчины", "ветчине",
+        "ветчину", "ветчиной",
+    ],
+}
+
+
+def expand_morpho(word: str) -> list[str]:
+    """Возвращает список всех словоформ для слова, если нашли корень в словаре."""
+    w = word.lower().strip()
+    for root, forms in MORPHO_MAP.items():
+        # Если слово совпадает с одной из форм — возвращаем все формы
+        if w in [f.lower() for f in forms] or w.startswith(root):
+            return list(set(forms + [w]))
+    return [w]
+
+
+def parse_queries(raw: str) -> list[str]:
+    """Разбивает строку по запятым/точкам с запятой, убирает пустые."""
+    parts = re.split(r"[,;]+", raw)
+    result = []
+    for p in parts:
+        p = p.strip()
+        if p:
+            result.append(p)
+    return result or [raw.strip()]
+
+
+def build_search_variants(query: str) -> list[str]:
+    """
+    Для каждого слова в запросе собирает морфологические варианты,
+    возвращает список уникальных поисковых запросов.
+    """
+    words = query.lower().split()
+    if not words:
+        return [query]
+
+    # Расширяем каждое слово морфологически
+    expanded_words = [expand_morpho(w) for w in words]
+
+    # Если у какого-то слова несколько форм — генерируем комбинации
+    # Но ограничиваем до разумного числа запросов
+    variants = set()
+    base = " ".join(words)
+    variants.add(base)
+
+    # Для каждого слова с формами добавляем варианты с заменой
+    for i, forms in enumerate(expanded_words):
+        if len(forms) > 1:
+            for form in forms:
+                new_words = words[:i] + [form] + words[i+1:]
+                variants.add(" ".join(new_words))
+
+    return list(variants)[:8]  # Не более 8 вариантов на запрос
+
+
+# ──────────────────────────────────────────────
+# Handler
+# ──────────────────────────────────────────────
 
 def handler(event: dict, context) -> dict:
     cors_headers = {
@@ -19,37 +105,65 @@ def handler(event: dict, context) -> dict:
         return {"statusCode": 200, "headers": cors_headers, "body": ""}
 
     params = event.get("queryStringParameters") or {}
-    query = params.get("query", "емколбаски").strip()
+    raw_query = params.get("query", "").strip()
     marketplace = params.get("marketplace", "all")
 
-    results = []
-    errors = []
+    # Разбиваем на несколько брендов
+    brands = parse_queries(raw_query)
 
-    if marketplace in ("wb", "all"):
-        wb_items, err = search_wildberries(query)
-        results.extend(wb_items)
-        if err:
-            errors.append(f"WB: {err}")
-
-    if marketplace in ("ozon", "all"):
-        ozon_items, err = search_ozon(query)
-        results.extend(ozon_items)
-        if err:
-            errors.append(f"Ozon: {err}")
+    all_results = []
+    all_errors = []
+    seen_ids = set()
 
     today = datetime.date.today().isoformat()
+
+    for brand in brands:
+        # Получаем все морфологические варианты для этого бренда
+        variants = build_search_variants(brand)
+
+        brand_results = []
+        for variant in variants:
+            if marketplace in ("wb", "all"):
+                items, err = search_wildberries(variant, brand)
+                for item in items:
+                    if item["id"] not in seen_ids:
+                        seen_ids.add(item["id"])
+                        brand_results.append(item)
+                if err:
+                    all_errors.append(f"WB ({variant}): {err}")
+
+            if marketplace in ("ozon", "all"):
+                items, err = search_ozon(variant, brand)
+                for item in items:
+                    if item["id"] not in seen_ids:
+                        seen_ids.add(item["id"])
+                        brand_results.append(item)
+                if err:
+                    all_errors.append(f"Ozon ({variant}): {err}")
+
+        all_results.extend(brand_results)
+
+    # Сортируем: критические сначала
+    risk_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    all_results.sort(key=lambda x: risk_order.get(x.get("riskLevel", "low"), 3))
+
     return {
         "statusCode": 200,
         "headers": cors_headers,
         "body": json.dumps({
-            "results": results,
-            "total": len(results),
-            "query": query,
-            "errors": errors,
+            "results": all_results,
+            "total": len(all_results),
+            "brands": brands,
+            "query": raw_query,
+            "errors": all_errors,
             "date": today,
         }, ensure_ascii=False),
     }
 
+
+# ──────────────────────────────────────────────
+# Wildberries
+# ──────────────────────────────────────────────
 
 def fetch_json(url: str, headers: dict, timeout: int = 15):
     req = urllib.request.Request(url, headers=headers)
@@ -57,12 +171,10 @@ def fetch_json(url: str, headers: dict, timeout: int = 15):
         return json.loads(resp.read().decode("utf-8"))
 
 
-def search_wildberries(query: str):
-    """Поиск через WB catalog API с корректными параметрами."""
+def search_wildberries(query: str, brand_query: str):
     encoded = urllib.parse.quote(query)
     today = datetime.date.today().isoformat()
 
-    # Основной поиск
     url = (
         f"https://search.wb.ru/exactmatch/ru/common/v9/search"
         f"?appType=1&curr=rub&dest=-1257786"
@@ -83,14 +195,13 @@ def search_wildberries(query: str):
     except Exception as e:
         return [], str(e)
 
-    # WB может вернуть preset-редирект — пробуем достать products из разных мест
     products = (
         data.get("data", {}).get("products", [])
         or data.get("search_result", {}).get("products", [])
         or []
     )
 
-    # Если WB вернул preset — парсим через catalog API
+    # Preset-редирект WB
     preset_query = data.get("query", "")
     if not products and "preset=" in preset_query:
         preset_id = preset_query.split("preset=")[-1].split("&")[0]
@@ -106,7 +217,7 @@ def search_wildberries(query: str):
             pass
 
     items = []
-    for p in products[:25]:
+    for p in products[:20]:
         name = p.get("name", "")
         brand = p.get("brand", "")
         supplier = p.get("supplier", "")
@@ -116,7 +227,7 @@ def search_wildberries(query: str):
         rating = p.get("reviewRating", 0)
         feedbacks = p.get("feedbacks", 0)
 
-        risk = assess_risk(name, brand, query)
+        risk = assess_risk(name, brand, brand_query)
 
         items.append({
             "id": f"wb-{article}",
@@ -130,6 +241,8 @@ def search_wildberries(query: str):
             "price": price,
             "rating": rating,
             "feedbacks": feedbacks,
+            "searchQuery": query,
+            "brandQuery": brand_query,
             "detectedAt": today,
             "status": "new",
             "url": f"https://www.wildberries.ru/catalog/{article}/detail.aspx",
@@ -138,8 +251,11 @@ def search_wildberries(query: str):
     return items, None
 
 
-def search_ozon(query: str):
-    """Поиск через Ozon API."""
+# ──────────────────────────────────────────────
+# Ozon
+# ──────────────────────────────────────────────
+
+def search_ozon(query: str, brand_query: str):
     encoded = urllib.parse.quote(query)
     today = datetime.date.today().isoformat()
 
@@ -163,13 +279,10 @@ def search_ozon(query: str):
     except Exception as e:
         return [], str(e)
 
-    # Ozon хранит товары в нескольких возможных местах
-    products = []
     catalog = data.get("catalog", {}) or {}
     products = catalog.get("products", [])
 
     if not products:
-        # fallback: ищем в widgetStates
         widget_states = data.get("widgetStates", {})
         for key, val in widget_states.items():
             if "searchResultsV2" in key or "tileGrid" in key:
@@ -178,7 +291,7 @@ def search_ozon(query: str):
                     items_raw = inner.get("items", [])
                     for item in items_raw:
                         main = item.get("mainState", [])
-                        name, article, price, brand = "", "", 0, ""
+                        name, article, price_val, brand = "", "", 0, ""
                         for state in main:
                             atom = state.get("atom", {})
                             if state.get("id") == "name":
@@ -188,17 +301,16 @@ def search_ozon(query: str):
                                 if isinstance(price_str, str):
                                     price_str = price_str.replace("\u00a0", "").replace(" ", "").replace("₽", "").strip()
                                     try:
-                                        price = int(float(price_str))
+                                        price_val = int(float(price_str))
                                     except Exception:
-                                        price = 0
+                                        price_val = 0
                             if state.get("id") == "brand":
                                 brand = atom.get("label", "")
                         article = str(item.get("sku", item.get("id", "")))
-                        risk = assess_risk(name, brand, query)
                         if name:
                             products.append({
                                 "name": name, "brand": brand,
-                                "id": article, "price_val": price,
+                                "id": article, "price_val": price_val,
                             })
                 except Exception:
                     continue
@@ -206,7 +318,7 @@ def search_ozon(query: str):
                 break
 
     items = []
-    for p in products[:25]:
+    for p in products[:20]:
         name = p.get("name", "")
         article = str(p.get("id", p.get("sku", "")))
         brand = p.get("brand", "")
@@ -228,7 +340,7 @@ def search_ozon(query: str):
         seller_raw = p.get("seller", {})
         seller = seller_raw.get("name", brand) if isinstance(seller_raw, dict) else (seller_raw or brand)
 
-        risk = assess_risk(name, brand, query)
+        risk = assess_risk(name, brand, brand_query)
 
         items.append({
             "id": f"ozon-{article}",
@@ -240,6 +352,8 @@ def search_ozon(query: str):
             "violationType": "Товарный знак",
             "riskLevel": risk,
             "price": price_val,
+            "searchQuery": query,
+            "brandQuery": brand_query,
             "detectedAt": today,
             "status": "new",
             "url": f"https://www.ozon.ru/product/{article}/",
@@ -248,19 +362,33 @@ def search_ozon(query: str):
     return items, None
 
 
+# ──────────────────────────────────────────────
+# Оценка риска
+# ──────────────────────────────────────────────
+
 def assess_risk(name: str, brand: str, query: str) -> str:
     name_lower = name.lower()
     brand_lower = brand.lower()
     query_lower = query.lower()
+
+    # Расширяем запрос морфологически для проверки совпадений
+    all_variants = build_search_variants(query_lower)
+
+    # Точное совпадение хотя бы одного варианта
+    for v in all_variants:
+        if v in name_lower or v in brand_lower:
+            return "critical"
+
+    # Частичное совпадение по словам
     query_words = [w for w in query_lower.split() if len(w) > 2]
+    word_forms = []
+    for w in query_words:
+        word_forms.extend(expand_morpho(w))
 
-    if query_lower in name_lower or query_lower in brand_lower:
-        return "critical"
-
-    word_matches = sum(1 for w in query_words if w in name_lower or w in brand_lower)
-    if query_words and word_matches == len(query_words):
+    form_matches = sum(1 for f in word_forms if f in name_lower or f in brand_lower)
+    if form_matches >= len(query_words):
         return "high"
-    if word_matches > 0:
+    if form_matches > 0:
         return "medium"
 
     return "low"
