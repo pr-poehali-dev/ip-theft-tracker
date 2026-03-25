@@ -122,12 +122,12 @@ const DEMO_VIOLATIONS: Violation[] = [
 ];
 
 const MonitoringDashboard = () => {
-  const [violations, setViolations] = useState<Violation[]>([]);
+  const [violations, setViolations] = useState<Violation[]>(DEMO_VIOLATIONS);
   const [isLoading, setIsLoading] = useState(false);
-  const [hasSearched, setHasSearched] = useState(false);
+  const [hasSearched, setHasSearched] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeQueries, setActiveQueries] = useState<string[]>([]);
-  const [isDemo, setIsDemo] = useState(false);
+  const [isDemo, setIsDemo] = useState(true);
 
   const handleSearch = async (queries: string[], marketplace: string, _type: string) => {
     setIsLoading(true);
@@ -187,11 +187,12 @@ const MonitoringDashboard = () => {
 
       {isDemo && !isLoading && (
         <div className="flex items-start gap-3 card-glass rounded-xl px-5 py-3.5 mb-4 border border-[rgba(245,158,11,0.25)]">
-          <Icon name="Info" size={14} className="text-[#f59e0b] mt-0.5 shrink-0" />
+          <Icon name="FlaskConical" size={14} className="text-[#f59e0b] mt-0.5 shrink-0" />
           <p className="text-xs text-[hsl(215,20%,55%)] font-mono leading-relaxed">
-            Маркетплейсы ограничили прямой доступ к поиску с серверов. Показаны{" "}
-            <span className="text-[#f59e0b]">демо-данные</span> — пример нарушений товарного знака «Емколбаски».
-            Для реального мониторинга необходим API-ключ продавца WB/Ozon.
+            <span className="text-[#f59e0b] font-bold">Демо-режим:</span>{" "}
+            показан пример нарушений товарного знака{" "}
+            <span className="text-white">«Емколбаски»</span> на WB и Ozon.
+            Введите свои товарные знаки и нажмите «Начать мониторинг».
           </p>
         </div>
       )}
