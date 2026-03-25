@@ -10,20 +10,27 @@ const MonitoringDashboard = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeQueries, setActiveQueries] = useState<string[]>([]);
 
-  const handleSearch = async (query: string, marketplace: string, _type: string) => {
+  const handleSearch = async (queries: string[], marketplace: string, _type: string) => {
     setIsLoading(true);
     setHasSearched(true);
     setViolations([]);
     setError(null);
+    setActiveQueries(queries);
 
     try {
-      const params = new URLSearchParams({ query, marketplace });
-      const res = await fetch(`${SEARCH_URL}?${params}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      setViolations(data.results || []);
-    } catch (e) {
+      const allResults = await Promise.all(
+        queries.map(async (query) => {
+          const params = new URLSearchParams({ query, marketplace });
+          const res = await fetch(`${SEARCH_URL}?${params}`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json();
+          return (data.results || []).map((r: Violation) => ({ ...r, _query: query }));
+        })
+      );
+      setViolations(allResults.flat());
+    } catch {
       setError("Не удалось получить данные. Попробуйте ещё раз.");
     } finally {
       setIsLoading(false);
@@ -34,6 +41,17 @@ const MonitoringDashboard = () => {
     <section id="monitoring" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
       <StatsCards />
       <SearchPanel onSearch={handleSearch} isLoading={isLoading} />
+
+      {isLoading && activeQueries.length > 1 && (
+        <div className="card-glass rounded-xl px-5 py-3 mb-4 flex items-center gap-3 font-mono text-xs text-[hsl(215,20%,55%)]">
+          <Icon name="Loader2" size={13} className="animate-spin text-[var(--neon)]" />
+          Сканирование {activeQueries.length} товарных знаков одновременно:&nbsp;
+          {activeQueries.map((q, i) => (
+            <span key={i} className="text-[var(--neon)]">{q}{i < activeQueries.length - 1 ? "," : ""}&nbsp;</span>
+          ))}
+        </div>
+      )}
+
       {error && (
         <div className="card-glass rounded-xl px-5 py-4 text-sm text-[#ff4d6d] border border-[rgba(255,77,109,0.2)] mb-4 font-mono">
           {error}
@@ -45,5 +63,7 @@ const MonitoringDashboard = () => {
     </section>
   );
 };
+
+import Icon from "@/components/ui/icon";
 
 export default MonitoringDashboard;
