@@ -94,7 +94,7 @@ const MonitoringDashboard = () => {
   };
 
   return (
-    <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+    <section id="monitoring" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
       <StatsCards />
       <SearchPanel onSearch={handleSearch} isLoading={isLoading} />
       {(isLoading || hasSearched) && (
