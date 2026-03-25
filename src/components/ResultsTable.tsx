@@ -1,4 +1,6 @@
+import { useState } from "react";
 import Icon from "@/components/ui/icon";
+import ComplaintModal from "./ComplaintModal";
 
 export interface Violation {
   id: string;
@@ -40,6 +42,8 @@ interface ResultsTableProps {
 }
 
 const ResultsTable = ({ violations, isLoading }: ResultsTableProps) => {
+  const [selectedViolation, setSelectedViolation] = useState<Violation | null>(null);
+
   if (isLoading) {
     return (
       <div className="card-glass rounded-2xl p-8">
@@ -67,109 +71,122 @@ const ResultsTable = ({ violations, isLoading }: ResultsTableProps) => {
   }
 
   return (
-    <div className="card-glass rounded-2xl overflow-hidden animate-fade-in-up" style={{ opacity: 0 }}>
-      <div className="flex items-center justify-between px-6 py-4 border-b border-[rgba(0,212,255,0.1)]">
-        <div className="flex items-center gap-3">
-          <div className="w-1.5 h-5 rounded-full bg-[#ff4d6d] shadow-[0_0_8px_#ff4d6d]" />
-          <h3 className="text-sm font-mono uppercase tracking-widest text-[hsl(215,20%,70%)]">
-            Обнаруженные нарушения
-          </h3>
-          <span className="bg-[rgba(255,77,109,0.15)] text-[#ff4d6d] border border-[rgba(255,77,109,0.3)] text-xs font-mono px-2 py-0.5 rounded-full">
-            {violations.length}
-          </span>
+    <>
+      <div className="card-glass rounded-2xl overflow-hidden animate-fade-in-up" style={{ opacity: 0 }}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[rgba(0,212,255,0.1)]">
+          <div className="flex items-center gap-3">
+            <div className="w-1.5 h-5 rounded-full bg-[#ff4d6d] shadow-[0_0_8px_#ff4d6d]" />
+            <h3 className="text-sm font-mono uppercase tracking-widest text-[hsl(215,20%,70%)]">
+              Обнаруженные нарушения
+            </h3>
+            <span className="bg-[rgba(255,77,109,0.15)] text-[#ff4d6d] border border-[rgba(255,77,109,0.3)] text-xs font-mono px-2 py-0.5 rounded-full">
+              {violations.length}
+            </span>
+          </div>
+          <button className="flex items-center gap-1.5 text-xs text-[hsl(215,20%,50%)] hover:text-[var(--neon)] transition-colors font-mono">
+            <Icon name="Download" size={13} />
+            Экспорт
+          </button>
         </div>
-        <button className="flex items-center gap-1.5 text-xs text-[hsl(215,20%,50%)] hover:text-[var(--neon)] transition-colors font-mono">
-          <Icon name="Download" size={13} />
-          Экспорт
-        </button>
+
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-[rgba(0,212,255,0.08)]">
+                {["Товар", "Продавец", "Площадка", "Тип нарушения", "Риск", "Цена", "Статус", ""].map((h) => (
+                  <th
+                    key={h}
+                    className="px-4 py-3 text-left text-[10px] font-mono uppercase tracking-widest text-[hsl(215,20%,40%)]"
+                  >
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {violations.map((v, i) => {
+                const risk = riskConfig[v.riskLevel];
+                const status = statusConfig[v.status];
+                const mp = mpConfig[v.marketplace];
+                return (
+                  <tr
+                    key={v.id}
+                    className="border-b border-[rgba(255,255,255,0.03)] hover:bg-[rgba(0,212,255,0.03)] transition-colors group animate-fade-in-up"
+                    style={{ animationDelay: `${i * 0.05}s`, opacity: 0 }}
+                  >
+                    <td className="px-4 py-3">
+                      <div className="text-sm text-white font-medium max-w-[180px] truncate">{v.productName}</div>
+                      <div className="text-[11px] text-[hsl(215,20%,40%)] font-mono">#{v.articleId}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="text-sm text-[hsl(215,20%,65%)]">{v.seller}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        className="text-xs font-bold px-2.5 py-1 rounded-md"
+                        style={{ background: `${mp.color}20`, color: mp.color, border: `1px solid ${mp.color}40` }}
+                      >
+                        {mp.label}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="text-xs text-[hsl(215,20%,60%)]">{v.violationType}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        className="text-xs font-bold px-2.5 py-1 rounded-full"
+                        style={{ background: risk.bg, color: risk.color, border: `1px solid ${risk.color}40` }}
+                      >
+                        {risk.label}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="text-sm text-white font-mono">
+                        {v.price.toLocaleString("ru-RU")} ₽
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1.5">
+                        <Icon name={status.icon} size={12} style={{ color: status.color }} />
+                        <span className="text-xs" style={{ color: status.color }}>{status.label}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2">
+                        {v.url && (
+                          <a
+                            href={v.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 text-[hsl(215,20%,50%)] hover:text-[var(--neon)] transition-colors"
+                          >
+                            <Icon name="ExternalLink" size={13} />
+                          </a>
+                        )}
+                        <button
+                          onClick={() => setSelectedViolation(v)}
+                          className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold text-white bg-[#7c3aed] hover:bg-[#6d28d9] transition-all duration-200 shadow-[0_0_12px_rgba(124,58,237,0.3)]"
+                        >
+                          <Icon name="FileText" size={11} />
+                          Жалоба
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-[rgba(0,212,255,0.08)]">
-              {["Товар", "Продавец", "Площадка", "Тип нарушения", "Риск", "Цена", "Статус", ""].map((h) => (
-                <th
-                  key={h}
-                  className="px-4 py-3 text-left text-[10px] font-mono uppercase tracking-widest text-[hsl(215,20%,40%)]"
-                >
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {violations.map((v, i) => {
-              const risk = riskConfig[v.riskLevel];
-              const status = statusConfig[v.status];
-              const mp = mpConfig[v.marketplace];
-              return (
-                <tr
-                  key={v.id}
-                  className="border-b border-[rgba(255,255,255,0.03)] hover:bg-[rgba(0,212,255,0.03)] transition-colors group animate-fade-in-up"
-                  style={{ animationDelay: `${i * 0.05}s`, opacity: 0 }}
-                >
-                  <td className="px-4 py-3">
-                    <div className="text-sm text-white font-medium max-w-[180px] truncate">{v.productName}</div>
-                    <div className="text-[11px] text-[hsl(215,20%,40%)] font-mono">#{v.articleId}</div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="text-sm text-[hsl(215,20%,65%)]">{v.seller}</div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className="text-xs font-bold px-2.5 py-1 rounded-md"
-                      style={{ background: `${mp.color}20`, color: mp.color, border: `1px solid ${mp.color}40` }}
-                    >
-                      {mp.label}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="text-xs text-[hsl(215,20%,60%)]">{v.violationType}</div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className="text-xs font-bold px-2.5 py-1 rounded-full"
-                      style={{ background: risk.bg, color: risk.color, border: `1px solid ${risk.color}40` }}
-                    >
-                      {risk.label}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="text-sm text-white font-mono">
-                      {v.price.toLocaleString("ru-RU")} ₽
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-1.5">
-                      <Icon name={status.icon} size={12} style={{ color: status.color }} />
-                      <span className="text-xs" style={{ color: status.color }}>{status.label}</span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2">
-                      {v.url && (
-                        <a
-                          href={v.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-1 text-[hsl(215,20%,50%)] text-xs font-mono hover:text-[var(--neon)] transition-colors"
-                        >
-                          <Icon name="ExternalLink" size={11} />
-                        </a>
-                      )}
-                      <button className="flex items-center gap-1 text-[var(--neon)] text-xs font-mono hover:underline">
-                        Жалоба <Icon name="ArrowRight" size={11} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
+      {selectedViolation && (
+        <ComplaintModal
+          violation={selectedViolation}
+          onClose={() => setSelectedViolation(null)}
+        />
+      )}
+    </>
   );
 };
 
