@@ -1,11 +1,11 @@
 import { useState } from "react";
 import Icon from "@/components/ui/icon";
 
-const scrollToMonitoring = () => {
-  document.getElementById("monitoring")?.scrollIntoView({ behavior: "smooth" });
-};
+interface HeaderProps {
+  onStartMonitoring: () => void;
+}
 
-const Header = () => {
+const Header = ({ onStartMonitoring }: HeaderProps) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   return (
@@ -42,7 +42,10 @@ const Header = () => {
             <button className="px-4 py-2 text-sm text-[var(--neon)] border border-[rgba(0,212,255,0.3)] rounded-md hover:bg-[var(--neon-dim)] transition-all duration-200 font-medium">
               Войти
             </button>
-            <button onClick={scrollToMonitoring} className="px-4 py-2 text-sm bg-[var(--neon)] text-[hsl(220,30%,6%)] rounded-md hover:bg-[rgba(0,212,255,0.85)] transition-all duration-200 font-bold shadow-[var(--neon-glow)]">
+            <button
+              onClick={onStartMonitoring}
+              className="px-4 py-2 text-sm bg-[var(--neon)] text-[hsl(220,30%,6%)] rounded-md hover:bg-[rgba(0,212,255,0.85)] transition-all duration-200 font-bold shadow-[var(--neon-glow)]"
+            >
               Начать мониторинг
             </button>
           </div>
@@ -67,7 +70,10 @@ const Header = () => {
               {item}
             </a>
           ))}
-          <button onClick={scrollToMonitoring} className="w-full mt-3 px-4 py-2 text-sm bg-[var(--neon)] text-[hsl(220,30%,6%)] rounded-md font-bold">
+          <button
+            onClick={() => { setIsMenuOpen(false); onStartMonitoring(); }}
+            className="w-full mt-3 px-4 py-2 text-sm bg-[var(--neon)] text-[hsl(220,30%,6%)] rounded-md font-bold"
+          >
             Начать мониторинг
           </button>
         </div>

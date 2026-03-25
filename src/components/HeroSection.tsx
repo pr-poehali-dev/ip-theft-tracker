@@ -1,10 +1,10 @@
 const HERO_IMAGE = "https://cdn.poehali.dev/projects/7c05d2a3-5748-4af6-94b3-c5a48a7b0259/files/d26a8a99-c726-4b44-847d-629fb5e6e0b1.jpg";
 
-const scrollToMonitoring = () => {
-  document.getElementById("monitoring")?.scrollIntoView({ behavior: "smooth" });
-};
+interface HeroSectionProps {
+  onStartMonitoring: () => void;
+}
 
-const HeroSection = () => {
+const HeroSection = ({ onStartMonitoring }: HeroSectionProps) => {
   return (
     <section className="relative pt-28 pb-12 overflow-hidden">
       <div className="absolute inset-0 grid-bg opacity-60 pointer-events-none" />
@@ -42,10 +42,16 @@ const HeroSection = () => {
               className="flex flex-wrap gap-3 animate-fade-in-up delay-300"
               style={{ opacity: 0 }}
             >
-              <button onClick={scrollToMonitoring} className="flex items-center gap-2 px-6 py-3 bg-[var(--neon)] text-[hsl(220,30%,6%)] rounded-xl font-bold text-sm hover:bg-[rgba(0,212,255,0.85)] transition-all duration-200 shadow-[var(--neon-glow)] hover:shadow-[var(--neon-strong)]">
+              <button
+                onClick={onStartMonitoring}
+                className="flex items-center gap-2 px-6 py-3 bg-[var(--neon)] text-[hsl(220,30%,6%)] rounded-xl font-bold text-sm hover:bg-[rgba(0,212,255,0.85)] transition-all duration-200 shadow-[var(--neon-glow)] hover:shadow-[var(--neon-strong)]"
+              >
                 Начать мониторинг
               </button>
-              <button onClick={scrollToMonitoring} className="flex items-center gap-2 px-6 py-3 border border-[rgba(0,212,255,0.3)] text-[var(--neon)] rounded-xl font-medium text-sm hover:bg-[rgba(0,212,255,0.08)] transition-all duration-200">
+              <button
+                onClick={onStartMonitoring}
+                className="flex items-center gap-2 px-6 py-3 border border-[rgba(0,212,255,0.3)] text-[var(--neon)] rounded-xl font-medium text-sm hover:bg-[rgba(0,212,255,0.08)] transition-all duration-200"
+              >
                 Демонстрация
               </button>
             </div>

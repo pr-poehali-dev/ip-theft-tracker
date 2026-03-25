@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import Icon from "@/components/ui/icon";
 import SearchPanel from "./SearchPanel";
 import ResultsTable, { Violation } from "./ResultsTable";
@@ -121,13 +121,26 @@ const DEMO_VIOLATIONS: Violation[] = [
   },
 ];
 
-const MonitoringDashboard = () => {
+interface MonitoringDashboardProps {
+  searchTrigger?: { queries: string[]; marketplace: string; type: string } | null;
+}
+
+const MonitoringDashboard = ({ searchTrigger }: MonitoringDashboardProps) => {
   const [violations, setViolations] = useState<Violation[]>(DEMO_VIOLATIONS);
   const [isLoading, setIsLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeQueries, setActiveQueries] = useState<string[]>([]);
   const [isDemo, setIsDemo] = useState(true);
+  const prevTriggerRef = useRef<typeof searchTrigger>(null);
+
+  // Запуск поиска из внешнего триггера (модалка "Начать мониторинг")
+  useEffect(() => {
+    if (searchTrigger && searchTrigger !== prevTriggerRef.current) {
+      prevTriggerRef.current = searchTrigger;
+      handleSearch(searchTrigger.queries, searchTrigger.marketplace, searchTrigger.type);
+    }
+  }, [searchTrigger]);
 
   const handleSearch = async (queries: string[], marketplace: string, _type: string) => {
     setIsLoading(true);
