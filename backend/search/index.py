@@ -4,7 +4,7 @@
 import json
 import urllib.request
 import urllib.parse
-import urllib.error
+import datetime
 
 
 def handler(event: dict, context) -> dict:
@@ -23,46 +23,98 @@ def handler(event: dict, context) -> dict:
     marketplace = params.get("marketplace", "all")
 
     results = []
+    errors = []
 
     if marketplace in ("wb", "all"):
-        wb_items = search_wildberries(query)
+        wb_items, err = search_wildberries(query)
         results.extend(wb_items)
+        if err:
+            errors.append(f"WB: {err}")
 
     if marketplace in ("ozon", "all"):
-        ozon_items = search_ozon(query)
+        ozon_items, err = search_ozon(query)
         results.extend(ozon_items)
+        if err:
+            errors.append(f"Ozon: {err}")
 
+    today = datetime.date.today().isoformat()
     return {
         "statusCode": 200,
         "headers": cors_headers,
-        "body": json.dumps({"results": results, "total": len(results), "query": query}, ensure_ascii=False),
+        "body": json.dumps({
+            "results": results,
+            "total": len(results),
+            "query": query,
+            "errors": errors,
+            "date": today,
+        }, ensure_ascii=False),
     }
 
 
-def search_wildberries(query: str) -> list:
-    encoded = urllib.parse.quote(query)
-    url = f"https://search.wb.ru/exactmatch/ru/common/v9/search?appType=1&curr=rub&dest=-1257786&query={encoded}&resultset=catalog&sort=popular&spp=30&suppressSpellcheck=false"
+def fetch_json(url: str, headers: dict, timeout: int = 15):
+    req = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
 
-    req = urllib.request.Request(url, headers={
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept": "application/json",
-    })
+
+def search_wildberries(query: str):
+    """Поиск через WB catalog API с корректными параметрами."""
+    encoded = urllib.parse.quote(query)
+    today = datetime.date.today().isoformat()
+
+    # Основной поиск
+    url = (
+        f"https://search.wb.ru/exactmatch/ru/common/v9/search"
+        f"?appType=1&curr=rub&dest=-1257786"
+        f"&query={encoded}"
+        f"&resultset=catalog&sort=popular&spp=30"
+        f"&suppressSpellcheck=false"
+    )
+    headers = {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept": "*/*",
+        "Accept-Language": "ru-RU,ru;q=0.9",
+        "Origin": "https://www.wildberries.ru",
+        "Referer": f"https://www.wildberries.ru/catalog/0/search.aspx?search={encoded}",
+    }
 
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-    except Exception:
-        return []
+        data = fetch_json(url, headers)
+    except Exception as e:
+        return [], str(e)
 
-    products = data.get("data", {}).get("products", [])
+    # WB может вернуть preset-редирект — пробуем достать products из разных мест
+    products = (
+        data.get("data", {}).get("products", [])
+        or data.get("search_result", {}).get("products", [])
+        or []
+    )
+
+    # Если WB вернул preset — парсим через catalog API
+    preset_query = data.get("query", "")
+    if not products and "preset=" in preset_query:
+        preset_id = preset_query.split("preset=")[-1].split("&")[0]
+        catalog_url = (
+            f"https://catalog.wb.ru/presets/bucket_11921/catalog"
+            f"?appType=1&curr=rub&dest=-1257786"
+            f"&preset={preset_id}&sort=popular&spp=30"
+        )
+        try:
+            cat_data = fetch_json(catalog_url, headers)
+            products = cat_data.get("data", {}).get("products", [])
+        except Exception:
+            pass
+
     items = []
-    for p in products[:20]:
+    for p in products[:25]:
         name = p.get("name", "")
         brand = p.get("brand", "")
         supplier = p.get("supplier", "")
         article = str(p.get("id", ""))
-        price_raw = p.get("priceU", 0) or p.get("salePriceU", 0)
-        price = price_raw // 100
+        price_raw = p.get("salePriceU", 0) or p.get("priceU", 0)
+        price = price_raw // 100 if price_raw else 0
+        rating = p.get("reviewRating", 0)
+        feedbacks = p.get("feedbacks", 0)
 
         risk = assess_risk(name, brand, query)
 
@@ -76,48 +128,105 @@ def search_wildberries(query: str) -> list:
             "violationType": "Товарный знак",
             "riskLevel": risk,
             "price": price,
-            "detectedAt": "2026-03-25",
+            "rating": rating,
+            "feedbacks": feedbacks,
+            "detectedAt": today,
             "status": "new",
             "url": f"https://www.wildberries.ru/catalog/{article}/detail.aspx",
         })
 
-    return items
+    return items, None
 
 
-def search_ozon(query: str) -> list:
-    url = "https://api.ozon.ru/composer-api.bff/api/v2/search/products"
-    encoded_query = urllib.parse.quote(query)
-    full_url = f"https://www.ozon.ru/api/composer-api.bff/web/v1/search?text={encoded_query}&page=1&layout_container=categorySearchMegapagination&layout_page_index=2"
+def search_ozon(query: str):
+    """Поиск через Ozon API."""
+    encoded = urllib.parse.quote(query)
+    today = datetime.date.today().isoformat()
 
-    req = urllib.request.Request(full_url, headers={
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    url = (
+        f"https://www.ozon.ru/api/composer-api.bff/web/v1/search"
+        f"?text={encoded}&page=1"
+        f"&layout_container=categorySearchMegapagination"
+        f"&layout_page_index=2"
+    )
+    headers = {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         "Accept": "application/json",
+        "Accept-Language": "ru-RU,ru;q=0.9",
+        "Referer": f"https://www.ozon.ru/search/?text={encoded}",
         "x-o3-app-name": "ozon-front",
-    })
+        "x-o3-app-version": "2.0",
+    }
 
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-    except Exception:
-        return []
+        data = fetch_json(url, headers)
+    except Exception as e:
+        return [], str(e)
+
+    # Ozon хранит товары в нескольких возможных местах
+    products = []
+    catalog = data.get("catalog", {}) or {}
+    products = catalog.get("products", [])
+
+    if not products:
+        # fallback: ищем в widgetStates
+        widget_states = data.get("widgetStates", {})
+        for key, val in widget_states.items():
+            if "searchResultsV2" in key or "tileGrid" in key:
+                try:
+                    inner = json.loads(val) if isinstance(val, str) else val
+                    items_raw = inner.get("items", [])
+                    for item in items_raw:
+                        main = item.get("mainState", [])
+                        name, article, price, brand = "", "", 0, ""
+                        for state in main:
+                            atom = state.get("atom", {})
+                            if state.get("id") == "name":
+                                name = atom.get("label", "")
+                            if state.get("id") == "price":
+                                price_str = atom.get("price", "0")
+                                if isinstance(price_str, str):
+                                    price_str = price_str.replace("\u00a0", "").replace(" ", "").replace("₽", "").strip()
+                                    try:
+                                        price = int(float(price_str))
+                                    except Exception:
+                                        price = 0
+                            if state.get("id") == "brand":
+                                brand = atom.get("label", "")
+                        article = str(item.get("sku", item.get("id", "")))
+                        risk = assess_risk(name, brand, query)
+                        if name:
+                            products.append({
+                                "name": name, "brand": brand,
+                                "id": article, "price_val": price,
+                            })
+                except Exception:
+                    continue
+            if products:
+                break
 
     items = []
-    catalog = data.get("catalog", {})
-    products = catalog.get("products", []) if catalog else []
-
-    for p in products[:20]:
+    for p in products[:25]:
         name = p.get("name", "")
         article = str(p.get("id", p.get("sku", "")))
-        price_raw = p.get("price", {})
-        price = 0
-        if isinstance(price_raw, dict):
-            price_str = price_raw.get("price", "0").replace("\u00a0", "").replace(" ", "").replace("₽", "").strip()
-            try:
-                price = int(float(price_str))
-            except Exception:
-                price = 0
         brand = p.get("brand", "")
-        seller = p.get("seller", {}).get("name", brand) if isinstance(p.get("seller"), dict) else brand
+        price_val = p.get("price_val", 0)
+
+        if not price_val:
+            price_raw = p.get("price", {})
+            if isinstance(price_raw, dict):
+                price_str = price_raw.get("price", "0")
+                if isinstance(price_str, str):
+                    price_str = price_str.replace("\u00a0", "").replace(" ", "").replace("₽", "").strip()
+                    try:
+                        price_val = int(float(price_str))
+                    except Exception:
+                        price_val = 0
+            elif isinstance(price_raw, (int, float)):
+                price_val = int(price_raw)
+
+        seller_raw = p.get("seller", {})
+        seller = seller_raw.get("name", brand) if isinstance(seller_raw, dict) else (seller_raw or brand)
 
         risk = assess_risk(name, brand, query)
 
@@ -130,28 +239,26 @@ def search_ozon(query: str) -> list:
             "articleId": article,
             "violationType": "Товарный знак",
             "riskLevel": risk,
-            "price": price,
-            "detectedAt": "2026-03-25",
+            "price": price_val,
+            "detectedAt": today,
             "status": "new",
             "url": f"https://www.ozon.ru/product/{article}/",
         })
 
-    return items
+    return items, None
 
 
 def assess_risk(name: str, brand: str, query: str) -> str:
     name_lower = name.lower()
     brand_lower = brand.lower()
     query_lower = query.lower()
+    query_words = [w for w in query_lower.split() if len(w) > 2]
 
-    query_words = query_lower.split()
-    exact_match = query_lower in name_lower or query_lower in brand_lower
-
-    if exact_match:
+    if query_lower in name_lower or query_lower in brand_lower:
         return "critical"
 
     word_matches = sum(1 for w in query_words if w in name_lower or w in brand_lower)
-    if word_matches == len(query_words):
+    if query_words and word_matches == len(query_words):
         return "high"
     if word_matches > 0:
         return "medium"
